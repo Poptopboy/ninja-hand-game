@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ниндзя — игра с веб-камерой</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #050712;
+    }
+
+    body {
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    #camera {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      filter: brightness(0.48) saturate(0.9);
+      background: #050712;
+    }
+
+    #gameCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    #hud {
+      position: fixed;
+      z-index: 3;
+      top: 0;
+      left: 0;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: start;
+      gap: 24px;
+      padding: 22px 34px;
+      pointer-events: none;
+      color: #ffffff;
+      font-size: clamp(32px, 4.8vw, 68px);
+      font-weight: 900;
+      line-height: 1.05;
+      text-shadow: 0 4px 8px #000000, 0 0 24px #000000;
+    }
+
+    #scoreBox {
+      justify-self: start;
+      white-space: nowrap;
+    }
+
+    #timerBox {
+      justify-self: center;
+      min-width: 150px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    #timerBox.urgent {
+      color: #ffea00;
+      animation: pulse 0.5s infinite alternate;
+    }
+
+    #livesBox {
+      justify-self: end;
+      white-space: nowrap;
+      letter-spacing: 4px;
+    }
+
+    .hud-label {
+      display: block;
+      margin-bottom: 7px;
+      color: #bceeff;
+      font-size: 0.42em;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    #handHint {
+      position: fixed;
+      z-index: 4;
+      left: 50%;
+      bottom: 9vh;
+      transform: translateX(-50%);
+      width: max-content;
+      max-width: 92vw;
+      padding: 16px 28px;
+      border: 2px solid rgba(103, 240, 255, 0.75);
+      border-radius: 20px;
+      background: rgba(3, 10, 25, 0.76);
+      box-shadow: 0 0 30px rgba(0, 225, 255, 0.28);
+      color: #ffffff;
+      font-size: clamp(28px, 4vw, 54px);
+      font-weight: 800;
+      text-align: center;
+      text-shadow: 0 3px 8px #000000;
+      pointer-events: none;
+      animation: hintGlow 1s infinite alternate;
+    }
+
+    .overlay {
+      position: fixed;
+      z-index: 10;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px;
+      background: radial-gradient(circle at center, rgba(10, 24, 53, 0.68), rgba(2, 4, 13, 0.94));
+      text-align: center;
+    }
+
+    .panel {
+      width: min(940px, 96vw);
+      max-height: 96vh;
+      overflow-y: auto;
+      padding: clamp(24px, 4vh, 48px);
+    }
+
+    h1,
+    h2,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 18px;
+      color: #75f6ff;
+      font-size: clamp(72px, 13vw, 180px);
+      font-weight: 1000;
+      line-height: 0.95;
+      letter-spacing: 8px;
+      text-shadow: 0 0 14px #00c8ff, 0 0 50px rgba(0, 200, 255, 0.75), 0 7px 0 #093b59;
+    }
+
+    h2 {
+      margin-bottom: 28px;
+      color: #ffeb3b;
+      font-size: clamp(52px, 8vw, 116px);
+      font-weight: 1000;
+      line-height: 1;
+      text-shadow: 0 0 28px rgba(255, 191, 0, 0.55), 0 5px 8px #000000;
+    }
+
+    .instructions {
+      margin-bottom: 32px;
+      color: #ffffff;
+      font-size: clamp(24px, 3vw, 40px);
+      font-weight: 600;
+      line-height: 1.45;
+      text-shadow: 0 3px 8px #000000;
+    }
+
+    .game-button {
+      min-width: min(420px, 86vw);
+      padding: 20px 46px;
+      border: 4px solid #b8fbff;
+      border-radius: 24px;
+      outline: none;
+      background: linear-gradient(180deg, #00d9f5, #0085d8);
+      box-shadow: 0 0 22px #00d9ff, 0 8px 0 #07527c, 0 14px 30px rgba(0, 0, 0, 0.55);
+      color: #ffffff;
+      font: inherit;
+      font-size: clamp(38px, 5vw, 66px);
+      font-weight: 900;
+      line-height: 1.1;
+      text-shadow: 0 3px 5px #07527c;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .game-button:hover:not(:disabled) {
+      filter: brightness(1.15);
+      transform: translateY(-2px);
+    }
+
+    .game-button:active:not(:disabled) {
+      transform: translateY(5px);
+      box-shadow: 0 0 22px #00d9ff, 0 3px 0 #07527c;
+    }
+
+    .game-button:disabled {
+      cursor: wait;
+      filter: grayscale(0.4);
+      opacity: 0.8;
+    }
+
+    #cameraStatus {
+      min-height: 1.4em;
+      margin: 28px 0 0;
+      color: #d9f9ff;
+      font-size: clamp(22px, 2.5vw, 34px);
+      font-weight: 600;
+      line-height: 1.4;
+    }
+
+    #cameraStatus.error {
+      color: #ff9b9b;
+    }
+
+    .result {
+      margin-bottom: 16px;
+      color: #ffffff;
+      font-size: clamp(42px, 6vw, 84px);
+      font-weight: 900;
+      line-height: 1.15;
+      text-shadow: 0 4px 10px #000000;
+    }
+
+    .result span {
+      color: #75f6ff;
+    }
+
+    #newRecord {
+      margin-bottom: 24px;
+      color: #ffeb3b;
+      font-size: clamp(30px, 4vw, 52px);
+      font-weight: 900;
+      text-shadow: 0 0 22px rgba(255, 235, 59, 0.8);
+    }
+
+    @keyframes pulse {
+      from { transform: scale(1); }
+      to { transform: scale(1.12); }
+    }
+
+    @keyframes hintGlow {
+      from { box-shadow: 0 0 18px rgba(0, 225, 255, 0.2); }
+      to { box-shadow: 0 0 42px rgba(0, 225, 255, 0.55); }
+    }
+
+    @media (max-width: 700px) {
+      #hud {
+        gap: 10px;
+        padding: 16px 14px;
+        font-size: clamp(27px, 7vw, 46px);
+      }
+
+      #timerBox {
+        min-width: 90px;
+      }
+
+      #livesBox {
+        letter-spacing: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <video id="camera" autoplay muted playsinline></video>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud" class="hidden" aria-live="polite">
+    <div id="scoreBox">
+      <span class="hud-label">Счёт</span>
+      <span id="score">0</span>
+    </div>
+    <div id="timerBox">
+      <span class="hud-label">Время</span>
+      <span id="timer">30</span>
+    </div>
+    <div id="livesBox">
+      <span class="hud-label">Жизни</span>
+      <span id="lives">❤️❤️❤️</span>
+    </div>
+  </div>
+
+  <div id="handHint" class="hidden">Покажи руку камере</div>
+
+  <div id="startOverlay" class="overlay">
+    <div class="panel">
+      <h1>НИНДЗЯ</h1>
+      <p class="instructions">
+        Разрезай фрукты кончиком указательного пальца.<br>
+        Избегай бомбы 💣 и успей набрать очки за 30 секунд!
+      </p>
+      <button id="startButton" class="game-button" type="button">Играть</button>
+      <p id="cameraStatus">Для игры нужен доступ к веб-камере</p>
+    </div>
+  </div>
+
+  <div id="gameOverOverlay" class="overlay hidden">
+    <div class="panel">
+      <h2>ИГРА ОКОНЧЕНА</h2>
+      <p class="result">Счёт: <span id="finalScore">0</span></p>
+      <p class="result">Рекорд: <span id="bestScore">0</span></p>
+      <p id="newRecord" class="hidden">Новый рекорд!</p>
+      <button id="restartButton" class="game-button" type="button">Ещё раз</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script>
+    (() => {
+      'use strict';
+
+      const video = document.getElementById('camera');
+      const canvas = document.getElementById('gameCanvas');
+      const context = canvas.getContext('2d');
+      const hud = document.getElementById('hud');
+      const scoreElement = document.getElementById('score');
+      const timerElement = document.getElementById('timer');
+      const timerBox = document.getElementById('timerBox');
+      const livesElement = document.getElementById('lives');
+      const handHint = document.getElementById('handHint');
+      const startOverlay = document.getElementById('startOverlay');
+      const gameOverOverlay = document.getElementById('gameOverOverlay');
+      const startButton = document.getElementById('startButton');
+      const restartButton = document.getElementById('restartButton');
+      const cameraStatus = document.getElementById('cameraStatus');
+      const finalScoreElement = document.getElementById('finalScore');
+      const bestScoreElement = document.getElementById('bestScore');
+      const newRecordElement = document.getElementById('newRecord');
+
+      const ROUND_DURATION = 30000;
+      const TRAIL_LENGTH = 15;
+      const RECORD_KEY = 'ninjaHandGameRecord';
+      const FRUIT_TYPES = [
+        { emoji: '🍉', color: '#ff3565' },
+        { emoji: '🍎', color: '#ff3030' },
+        { emoji: '🍋', color: '#ffe52e' },
+        { emoji: '🍓', color: '#ff3158' },
+        { emoji: '🍊', color: '#ff941f' },
+        { emoji: '🥝', color: '#82cf45' }
+      ];
+
+      let width = window.innerWidth;
+      let height = window.innerHeight;
+      let gameState = 'idle';
+      let score = 0;
+      let lives = 3;
+      let bestScore = loadRecord();
+      let endTime = 0;
+      let lastFrameTime = performance.now();
+      let spawnCountdown = 0;
+      let handVisible = false;
+      let hands = null;
+      let camera = null;
+      let cameraBusy = false;
+      let objects = [];
+      let halves = [];
+      let particles = [];
+      let floatingTexts = [];
+      let trail = [];
+
+      function loadRecord() {
+        try {
+          const saved = Number.parseInt(localStorage.getItem(RECORD_KEY), 10);
+          return Number.isFinite(saved) && saved > 0 ? saved : 0;
+        } catch (error) {
+          return 0;
+        }
+      }
+
+      function saveRecord(value) {
+        try {
+          localStorage.setItem(RECORD_KEY, String(value));
+        } catch (error) {
+          console.warn('Не удалось сохранить рекорд:', error);
+        }
+      }
+
+      function randomBetween(minimum, maximum) {
+        return minimum + Math.random() * (maximum - minimum);
+      }
+
+      function resizeCanvas() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      }
+
+      function updateHud() {
+        scoreElement.textContent = String(score);
+        livesElement.textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
+      }
+
+      function updateTimer(now) {
+        const remaining = Math.max(0, endTime - now);
+        timerElement.textContent = String(Math.ceil(remaining / 1000));
+        timerBox.classList.toggle('urgent', remaining <= 5000 && remaining > 0);
+        return remaining;
+      }
+
+      function landmarkToScreen(landmark) {
+        const videoWidth = video.videoWidth || 640;
+        const videoHeight = video.videoHeight || 480;
+        const scale = Math.max(width / videoWidth, height / videoHeight);
+        const displayedWidth = videoWidth * scale;
+        const displayedHeight = videoHeight * scale;
+        const offsetX = (width - displayedWidth) / 2;
+        const offsetY = (height - displayedHeight) / 2;
+
+        return {
+          x: offsetX + (1 - landmark.x) * displayedWidth,
+          y: offsetY + landmark.y * displayedHeight
+        };
+      }
+
+      function onHandResults(results) {
+        const landmarks = results.multiHandLandmarks && results.multiHandLandmarks[0];
+        handVisible = Boolean(landmarks && landmarks[8]);
+
+        if (gameState === 'playing') {
+          handHint.classList.toggle('hidden', handVisible);
+        }
+
+        if (!handVisible) {
+          trail = [];
+          return;
+        }
+
+        if (gameState !== 'playing') {
+          return;
+        }
+
+        const point = landmarkToScreen(landmarks[8]);
+        trail.push(point);
+        if (trail.length > TRAIL_LENGTH) {
+          trail.shift();
+        }
+      }
+
+      async function initializeCamera() {
+        if (cameraBusy) {
+          return;
+        }
+
+        cameraBusy = true;
+        startButton.disabled = true;
+        startButton.textContent = 'Подключаем камеру…';
+        cameraStatus.classList.remove('error');
+        cameraStatus.textContent = 'Разреши доступ к веб-камере в браузере';
+
+        try {
+          if (!window.Hands || !window.Camera) {
+            throw new Error('Библиотеки MediaPipe не загрузились. Проверь подключение к интернету.');
+          }
+
+          hands = new Hands({
+            locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+          });
+          hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.5
+          });
+          hands.onResults(onHandResults);
+
+          camera = new Camera(video, {
+            onFrame: async () => {
+              await hands.send({ image: video });
+            },
+            width: 640,
+            height: 480
+          });
+          await camera.start();
+
+          startOverlay.classList.add('hidden');
+          startGame();
+        } catch (error) {
+          console.error('Ошибка запуска камеры:', error);
+          cameraStatus.classList.add('error');
+          cameraStatus.textContent = error && error.message
+            ? `Не удалось запустить камеру: ${error.message}`
+            : 'Не удалось запустить камеру. Проверь разрешение в браузере.';
+          startButton.disabled = false;
+          startButton.textContent = 'Попробовать снова';
+        } finally {
+          cameraBusy = false;
+        }
+      }
+
+      function startGame() {
+        gameState = 'playing';
+        score = 0;
+        lives = 3;
+        objects = [];
+        halves = [];
+        particles = [];
+        floatingTexts = [];
+        trail = [];
+        handVisible = false;
+        spawnCountdown = 0.35;
+        endTime = performance.now() + ROUND_DURATION;
+        lastFrameTime = performance.now();
+
+        updateHud();
+        updateTimer(performance.now());
+        hud.classList.remove('hidden');
+        gameOverOverlay.classList.add('hidden');
+        handHint.classList.remove('hidden');
+      }
+
+      function endGame() {
+        if (gameState !== 'playing') {
+          return;
+        }
+
+        gameState = 'over';
+        objects = [];
+        trail = [];
+        handHint.classList.add('hidden');
+        timerElement.textContent = '0';
+        timerBox.classList.remove('urgent');
+
+        const isNewRecord = score > bestScore;
+        if (isNewRecord) {
+          bestScore = score;
+          saveRecord(bestScore);
+        }
+
+        finalScoreElement.textContent = String(score);
+        bestScoreElement.textContent = String(bestScore);
+        newRecordElement.classList.toggle('hidden', !isNewRecord);
+        gameOverOverlay.classList.remove('hidden');
+      }
+
+      function spawnObject() {
+        const isBomb = Math.random() < 0.16;
+        const type = isBomb ? null : FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+        const size = randomBetween(80, 100);
+        const x = randomBetween(width * 0.12, width * 0.88);
+        objects.push({
+          kind: isBomb ? 'bomb' : 'fruit',
+          emoji: isBomb ? '💣' : type.emoji,
+          color: isBomb ? '#ff8b22' : type.color,
+          x,
+          y: height + size,
+          vx: (width / 2 - x) * randomBetween(0.15, 0.42) + randomBetween(-90, 90),
+          vy: -height * randomBetween(1.28, 1.62),
+          size,
+          rotation: randomBetween(-0.25, 0.25),
+          rotationSpeed: randomBetween(-1.8, 1.8)
+        });
+      }
+
+      function spawnWave() {
+        spawnObject();
+        if (Math.random() < 0.22) {
+          spawnObject();
+        }
+      }
+
+      function distanceToSegmentSquared(px, py, ax, ay, bx, by) {
+        const abx = bx - ax;
+        const aby = by - ay;
+        const lengthSquared = abx * abx + aby * aby;
+        let amount = 0;
+
+        if (lengthSquared > 0) {
+          amount = ((px - ax) * abx + (py - ay) * aby) / lengthSquared;
+          amount = Math.max(0, Math.min(1, amount));
+        }
+
+        const dx = px - (ax + abx * amount);
+        const dy = py - (ay + aby * amount);
+        return dx * dx + dy * dy;
+      }
+
+      function trailTouches(x, y, radius) {
+        const radiusSquared = radius * radius;
+
+        for (let index = 0; index < trail.length; index += 1) {
+          const point = trail[index];
+          const dx = x - point.x;
+          const dy = y - point.y;
+          if (dx * dx + dy * dy <= radiusSquared) {
+            return true;
+          }
+
+          if (index > 0) {
+            const previous = trail[index - 1];
+            if (distanceToSegmentSquared(x, y, previous.x, previous.y, point.x, point.y) <= radiusSquared) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
+      function createParticles(x, y, color, count, bomb = false) {
+        for (let index = 0; index < count; index += 1) {
+          const angle = randomBetween(0, Math.PI * 2);
+          const speed = randomBetween(100, bomb ? 560 : 420);
+          const life = randomBetween(0.45, bomb ? 1 : 0.8);
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - randomBetween(20, 150),
+            color: bomb && index % 3 === 0 ? '#3b3b46' : color,
+            size: randomBetween(4, bomb ? 16 : 11),
+            life,
+            maximumLife: life
+          });
+        }
+      }
+
+      function sliceFruit(object) {
+        const inheritedSpeedX = object.vx * 0.45;
+        const inheritedSpeedY = object.vy * 0.25;
+
+        for (const side of [-1, 1]) {
+          halves.push({
+            emoji: object.emoji,
+            x: object.x + side * object.size * 0.12,
+            y: object.y,
+            vx: inheritedSpeedX + side * randomBetween(130, 230),
+            vy: inheritedSpeedY - randomBetween(80, 180),
+            size: object.size,
+            side,
+            rotation: object.rotation,
+            rotationSpeed: side * randomBetween(3, 6)
+          });
+        }
+
+        createParticles(object.x, object.y, object.color, 24);
+        floatingTexts.push({
+          text: '+1',
+          x: object.x,
+          y: object.y - object.size * 0.4,
+          life: 0.8,
+          maximumLife: 0.8
+        });
+        score += 1;
+        updateHud();
+      }
+
+      function hitBomb(object) {
+        lives -= 1;
+        createParticles(object.x, object.y, '#ff6b16', 42, true);
+        trail = [];
+        updateHud();
+
+        if (lives <= 0) {
+          endGame();
+        }
+      }
+
+      function updateObjects(deltaTime) {
+        const gravity = height * 1.85;
+
+        for (let index = objects.length - 1; index >= 0; index -= 1) {
+          const object = objects[index];
+          object.vy += gravity * deltaTime;
+          object.x += object.vx * deltaTime;
+          object.y += object.vy * deltaTime;
+          object.rotation += object.rotationSpeed * deltaTime;
+
+          if (trail.length > 0 && trailTouches(object.x, object.y, object.size * 0.42)) {
+            objects.splice(index, 1);
+            if (object.kind === 'bomb') {
+              hitBomb(object);
+              if (gameState !== 'playing') {
+                return;
+              }
+            } else {
+              sliceFruit(object);
+            }
+            continue;
+          }
+
+          if (object.y > height + object.size * 2 && object.vy > 0) {
+            objects.splice(index, 1);
+          }
+        }
+      }
+
+      function updateEffects(deltaTime) {
+        const gravity = height * 1.85;
+
+        for (let index = halves.length - 1; index >= 0; index -= 1) {
+          const half = halves[index];
+          half.vy += gravity * deltaTime;
+          half.x += half.vx * deltaTime;
+          half.y += half.vy * deltaTime;
+          half.rotation += half.rotationSpeed * deltaTime;
+          if (half.y > height + half.size * 2) {
+            halves.splice(index, 1);
+          }
+        }
+
+        for (let index = particles.length - 1; index >= 0; index -= 1) {
+          const particle = particles[index];
+          particle.vy += gravity * 0.55 * deltaTime;
+          particle.vx *= Math.pow(0.985, deltaTime * 60);
+          particle.x += particle.vx * deltaTime;
+          particle.y += particle.vy * deltaTime;
+          particle.life -= deltaTime;
+          if (particle.life <= 0) {
+            particles.splice(index, 1);
+          }
+        }
+
+        for (let index = floatingTexts.length - 1; index >= 0; index -= 1) {
+          const text = floatingTexts[index];
+          text.y -= 85 * deltaTime;
+          text.life -= deltaTime;
+          if (text.life <= 0) {
+            floatingTexts.splice(index, 1);
+          }
+        }
+      }
+
+      function drawObject(object) {
+        context.save();
+        context.translate(object.x, object.y);
+        context.rotate(object.rotation);
+        context.font = `${object.size}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.shadowColor = 'rgba(0, 0, 0, 0.75)';
+        context.shadowBlur = 12;
+        context.shadowOffsetY = 5;
+        context.fillText(object.emoji, 0, 0);
+        context.restore();
+      }
+
+      function drawHalf(half) {
+        context.save();
+        context.translate(half.x, half.y);
+        context.rotate(half.rotation);
+        context.beginPath();
+        if (half.side < 0) {
+          context.rect(-half.size * 0.75, -half.size * 0.75, half.size * 0.75, half.size * 1.5);
+        } else {
+          context.rect(0, -half.size * 0.75, half.size * 0.75, half.size * 1.5);
+        }
+        context.clip();
+        context.font = `${half.size}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.shadowColor = 'rgba(0, 0, 0, 0.65)';
+        context.shadowBlur = 8;
+        context.fillText(half.emoji, 0, 0);
+        context.restore();
+      }
+
+      function drawEffects() {
+        for (const half of halves) {
+          drawHalf(half);
+        }
+
+        context.save();
+        for (const particle of particles) {
+          context.globalAlpha = Math.max(0, particle.life / particle.maximumLife);
+          context.fillStyle = particle.color;
+          context.shadowColor = particle.color;
+          context.shadowBlur = 8;
+          context.beginPath();
+          context.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+          context.fill();
+        }
+        context.restore();
+
+        context.save();
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.font = '900 52px Arial, sans-serif';
+        for (const text of floatingTexts) {
+          context.globalAlpha = Math.max(0, text.life / text.maximumLife);
+          context.fillStyle = '#fff45c';
+          context.shadowColor = '#ff8a00';
+          context.shadowBlur = 18;
+          context.fillText(text.text, text.x, text.y);
+        }
+        context.restore();
+      }
+
+      function drawTrail() {
+        if (trail.length === 0) {
+          return;
+        }
+
+        context.save();
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        context.globalCompositeOperation = 'lighter';
+
+        for (let index = 1; index < trail.length; index += 1) {
+          const strength = index / (trail.length - 1 || 1);
+          context.beginPath();
+          context.moveTo(trail[index - 1].x, trail[index - 1].y);
+          context.lineTo(trail[index].x, trail[index].y);
+          context.strokeStyle = `rgba(0, 221, 255, ${0.12 + strength * 0.88})`;
+          context.lineWidth = 3 + strength * 16;
+          context.shadowColor = '#00eaff';
+          context.shadowBlur = 12 + strength * 24;
+          context.stroke();
+        }
+
+        if (trail.length > 1) {
+          for (let index = 1; index < trail.length; index += 1) {
+            const strength = index / (trail.length - 1);
+            context.beginPath();
+            context.moveTo(trail[index - 1].x, trail[index - 1].y);
+            context.lineTo(trail[index].x, trail[index].y);
+            context.strokeStyle = `rgba(230, 255, 255, ${strength * 0.9})`;
+            context.lineWidth = 1 + strength * 4;
+            context.shadowBlur = 5;
+            context.stroke();
+          }
+        }
+
+        const tip = trail[trail.length - 1];
+        context.globalAlpha = 0.95;
+        context.fillStyle = '#eaffff';
+        context.shadowColor = '#00eaff';
+        context.shadowBlur = 28;
+        context.beginPath();
+        context.arc(tip.x, tip.y, 7, 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+      }
+
+      function frame(now) {
+        const deltaTime = Math.min((now - lastFrameTime) / 1000, 0.04);
+        lastFrameTime = now;
+
+        if (gameState === 'playing') {
+          const remaining = updateTimer(now);
+          if (remaining <= 0) {
+            endGame();
+          } else {
+            spawnCountdown -= deltaTime;
+            if (spawnCountdown <= 0) {
+              spawnWave();
+              spawnCountdown = randomBetween(0.55, 0.9);
+            }
+            updateObjects(deltaTime);
+          }
+        }
+
+        updateEffects(deltaTime);
+        context.clearRect(0, 0, width, height);
+
+        for (const object of objects) {
+          drawObject(object);
+        }
+
+        drawEffects();
+        drawTrail();
+        requestAnimationFrame(frame);
+      }
+
+      startButton.addEventListener('click', initializeCamera);
+      restartButton.addEventListener('click', startGame);
+      window.addEventListener('resize', resizeCanvas);
+      document.addEventListener('visibilitychange', () => {
+        lastFrameTime = performance.now();
+      });
+
+      resizeCanvas();
+      bestScoreElement.textContent = String(bestScore);
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>
