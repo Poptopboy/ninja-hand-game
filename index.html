@@ -366,6 +366,10 @@
       let hands = null;
       let camera = null;
       let cameraBusy = false;
+      let handProcessing = false;
+      let smoothedLandmark = null;
+      let lastHandSeenAt = 0;
+      let lastFingerFilterTime = 0;
       let objects = [];
       let halves = [];
       let particles = [];
@@ -396,7 +400,7 @@
       function resizeCanvas() {
         width = window.innerWidth;
         height = window.innerHeight;
-        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
         canvas.width = Math.round(width * pixelRatio);
         canvas.height = Math.round(height * pixelRatio);
         context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
@@ -429,9 +433,46 @@
         };
       }
 
+      function smoothFingerLandmark(landmark) {
+        const now = performance.now();
+
+        if (!smoothedLandmark) {
+          smoothedLandmark = { x: landmark.x, y: landmark.y };
+          lastFingerFilterTime = now;
+          return smoothedLandmark;
+        }
+
+        const deltaTime = Math.min(Math.max((now - lastFingerFilterTime) / 1000, 1 / 120), 0.1);
+        lastFingerFilterTime = now;
+        const speed = Math.hypot(
+          (landmark.x - smoothedLandmark.x) / deltaTime,
+          (landmark.y - smoothedLandmark.y) / deltaTime
+        );
+        const cutoff = 7 + Math.min(speed * 14, 38);
+        const smoothing = 1 - Math.exp(-cutoff * deltaTime);
+
+        smoothedLandmark = {
+          x: smoothedLandmark.x + (landmark.x - smoothedLandmark.x) * smoothing,
+          y: smoothedLandmark.y + (landmark.y - smoothedLandmark.y) * smoothing
+        };
+        return smoothedLandmark;
+      }
+
       function onHandResults(results) {
+        const now = performance.now();
         const landmarks = results.multiHandLandmarks && results.multiHandLandmarks[0];
-        handVisible = Boolean(landmarks && landmarks[8]);
+        const hasFinger = Boolean(landmarks && landmarks[8]);
+
+        if (hasFinger) {
+          if (!handVisible) {
+            smoothedLandmark = null;
+          }
+          handVisible = true;
+          lastHandSeenAt = now;
+        } else if (now - lastHandSeenAt > 180) {
+          handVisible = false;
+          smoothedLandmark = null;
+        }
 
         if (gameState === 'playing') {
           handHint.classList.toggle('hidden', handVisible);
@@ -442,11 +483,11 @@
           return;
         }
 
-        if (gameState !== 'playing') {
+        if (!hasFinger || gameState !== 'playing') {
           return;
         }
 
-        const point = landmarkToScreen(landmarks[8]);
+        const point = landmarkToScreen(smoothFingerLandmark(landmarks[8]));
         trail.push(point);
         if (trail.length > TRAIL_LENGTH) {
           trail.shift();
@@ -475,14 +516,23 @@
           hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 0,
-            minDetectionConfidence: 0.6,
-            minTrackingConfidence: 0.5
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.6
           });
           hands.onResults(onHandResults);
 
           camera = new Camera(video, {
             onFrame: async () => {
-              await hands.send({ image: video });
+              if (gameState !== 'playing' || handProcessing || document.hidden) {
+                return;
+              }
+
+              handProcessing = true;
+              try {
+                await hands.send({ image: video });
+              } finally {
+                handProcessing = false;
+              }
             },
             width: 640,
             height: 480
@@ -780,8 +830,6 @@
         for (const particle of particles) {
           context.globalAlpha = Math.max(0, particle.life / particle.maximumLife);
           context.fillStyle = particle.color;
-          context.shadowColor = particle.color;
-          context.shadowBlur = 8;
           context.beginPath();
           context.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
           context.fill();
@@ -796,7 +844,7 @@
           context.globalAlpha = Math.max(0, text.life / text.maximumLife);
           context.fillStyle = '#fff45c';
           context.shadowColor = '#ff8a00';
-          context.shadowBlur = 18;
+          context.shadowBlur = 12;
           context.fillText(text.text, text.x, text.y);
         }
         context.restore();
@@ -820,11 +868,12 @@
           context.strokeStyle = `rgba(0, 221, 255, ${0.12 + strength * 0.88})`;
           context.lineWidth = 3 + strength * 16;
           context.shadowColor = '#00eaff';
-          context.shadowBlur = 12 + strength * 24;
+          context.shadowBlur = 8 + strength * 14;
           context.stroke();
         }
 
         if (trail.length > 1) {
+          context.shadowBlur = 0;
           for (let index = 1; index < trail.length; index += 1) {
             const strength = index / (trail.length - 1);
             context.beginPath();
@@ -832,7 +881,6 @@
             context.lineTo(trail[index].x, trail[index].y);
             context.strokeStyle = `rgba(230, 255, 255, ${strength * 0.9})`;
             context.lineWidth = 1 + strength * 4;
-            context.shadowBlur = 5;
             context.stroke();
           }
         }
@@ -841,7 +889,7 @@
         context.globalAlpha = 0.95;
         context.fillStyle = '#eaffff';
         context.shadowColor = '#00eaff';
-        context.shadowBlur = 28;
+        context.shadowBlur = 18;
         context.beginPath();
         context.arc(tip.x, tip.y, 7, 0, Math.PI * 2);
         context.fill();
@@ -849,7 +897,7 @@
       }
 
       function frame(now) {
-        const deltaTime = Math.min((now - lastFrameTime) / 1000, 0.04);
+        const deltaTime = Math.max(0, Math.min((now - lastFrameTime) / 1000, 0.06));
         lastFrameTime = now;
 
         if (gameState === 'playing') {
