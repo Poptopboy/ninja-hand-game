@@ -366,6 +366,8 @@
       let hands = null;
       let camera = null;
       let cameraBusy = false;
+      let modelReady = false;
+      let handProcessing = false;
       let objects = [];
       let halves = [];
       let particles = [];
@@ -479,15 +481,35 @@
             minTrackingConfidence: 0.5
           });
           hands.onResults(onHandResults);
+          modelReady = false;
 
           camera = new Camera(video, {
             onFrame: async () => {
-              await hands.send({ image: video });
+              if (!modelReady || handProcessing) {
+                return;
+              }
+
+              handProcessing = true;
+              try {
+                await hands.send({ image: video });
+              } catch (error) {
+                console.warn('Пропущен кадр распознавания:', error);
+              } finally {
+                handProcessing = false;
+              }
             },
             width: 640,
             height: 480
           });
           await camera.start();
+          if (video.readyState < 2) {
+            await new Promise(resolve => video.addEventListener('loadeddata', resolve, { once: true }));
+          }
+
+          startButton.textContent = 'Загружаем модель…';
+          cameraStatus.textContent = 'Подготавливаем распознавание руки перед началом игры';
+          await hands.send({ image: video });
+          modelReady = true;
 
           startOverlay.classList.add('hidden');
           startGame();
