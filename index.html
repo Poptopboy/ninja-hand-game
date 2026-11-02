@@ -366,10 +366,6 @@
       let hands = null;
       let camera = null;
       let cameraBusy = false;
-      let handProcessing = false;
-      let smoothedLandmark = null;
-      let lastHandSeenAt = 0;
-      let lastFingerFilterTime = 0;
       let objects = [];
       let halves = [];
       let particles = [];
@@ -433,46 +429,9 @@
         };
       }
 
-      function smoothFingerLandmark(landmark) {
-        const now = performance.now();
-
-        if (!smoothedLandmark) {
-          smoothedLandmark = { x: landmark.x, y: landmark.y };
-          lastFingerFilterTime = now;
-          return smoothedLandmark;
-        }
-
-        const deltaTime = Math.min(Math.max((now - lastFingerFilterTime) / 1000, 1 / 120), 0.1);
-        lastFingerFilterTime = now;
-        const speed = Math.hypot(
-          (landmark.x - smoothedLandmark.x) / deltaTime,
-          (landmark.y - smoothedLandmark.y) / deltaTime
-        );
-        const cutoff = 7 + Math.min(speed * 14, 38);
-        const smoothing = 1 - Math.exp(-cutoff * deltaTime);
-
-        smoothedLandmark = {
-          x: smoothedLandmark.x + (landmark.x - smoothedLandmark.x) * smoothing,
-          y: smoothedLandmark.y + (landmark.y - smoothedLandmark.y) * smoothing
-        };
-        return smoothedLandmark;
-      }
-
       function onHandResults(results) {
-        const now = performance.now();
         const landmarks = results.multiHandLandmarks && results.multiHandLandmarks[0];
-        const hasFinger = Boolean(landmarks && landmarks[8]);
-
-        if (hasFinger) {
-          if (!handVisible) {
-            smoothedLandmark = null;
-          }
-          handVisible = true;
-          lastHandSeenAt = now;
-        } else if (now - lastHandSeenAt > 180) {
-          handVisible = false;
-          smoothedLandmark = null;
-        }
+        handVisible = Boolean(landmarks && landmarks[8]);
 
         if (gameState === 'playing') {
           handHint.classList.toggle('hidden', handVisible);
@@ -483,11 +442,11 @@
           return;
         }
 
-        if (!hasFinger || gameState !== 'playing') {
+        if (gameState !== 'playing') {
           return;
         }
 
-        const point = landmarkToScreen(smoothFingerLandmark(landmarks[8]));
+        const point = landmarkToScreen(landmarks[8]);
         trail.push(point);
         if (trail.length > TRAIL_LENGTH) {
           trail.shift();
@@ -516,23 +475,14 @@
           hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 0,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.6
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.5
           });
           hands.onResults(onHandResults);
 
           camera = new Camera(video, {
             onFrame: async () => {
-              if (gameState !== 'playing' || handProcessing || document.hidden) {
-                return;
-              }
-
-              handProcessing = true;
-              try {
-                await hands.send({ image: video });
-              } finally {
-                handProcessing = false;
-              }
+              await hands.send({ image: video });
             },
             width: 640,
             height: 480
