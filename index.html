@@ -472,7 +472,7 @@
           }
 
           hands = new Hands({
-            locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            locateFile: file => `./mediapipe/${file}`
           });
           hands.setOptions({
             maxNumHands: 1,
@@ -508,7 +508,7 @@
 
           startButton.textContent = 'Загружаем модель…';
           cameraStatus.textContent = 'Подготавливаем распознавание руки перед началом игры';
-          await hands.send({ image: video });
+          await hands.initialize();
           modelReady = true;
 
           startOverlay.classList.add('hidden');
